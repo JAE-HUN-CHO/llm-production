@@ -6,7 +6,8 @@ from transformers import (
     AutoModelForSequenceClassification,
     DataCollatorWithPadding,
 )
-from datasets import load_dataset, load_metric
+from datasets import load_dataset
+import evaluate
 
 import torch
 import torch.nn as nn
@@ -110,6 +111,18 @@ if __name__ == "__main__":
 
     dataset = load_dataset(dataset_id, dataset_config)
 
+    # Set MAX_TRAIN_SAMPLES / MAX_EVAL_SAMPLES / MAX_STEPS env vars to shrink
+    # the run (e.g. on a laptop without a GPU)
+    max_train = int(os.getenv("MAX_TRAIN_SAMPLES", 0))
+    max_eval = int(os.getenv("MAX_EVAL_SAMPLES", 0))
+    max_steps = int(os.getenv("MAX_STEPS", -1))
+    if max_train:
+        dataset["train"] = dataset["train"].select(range(max_train))
+    if max_eval:
+        dataset["validation"] = dataset["validation"].select(
+            range(max_eval)
+        )
+
     tokenized_dataset = dataset.map(process, batched=True)
     tokenized_dataset = tokenized_dataset.rename_column("label", "labels")
 
@@ -127,6 +140,7 @@ if __name__ == "__main__":
     training_args = DistillationTrainingArguments(
         output_dir=model_dir,
         num_train_epochs=1,
+        max_steps=max_steps,
         per_device_train_batch_size=1,
         per_device_eval_batch_size=1,
         fp16=False,  # False if no GPU
@@ -139,6 +153,7 @@ if __name__ == "__main__":
         load_best_model_at_end=True,
         metric_for_best_model="accuracy",
         report_to="none",
+        use_cpu=os.getenv("USE_CPU") == "1",  # force CPU (skip MPS/CUDA)
         # push to hub parameters
         push_to_hub=False,
         # distilation parameters
@@ -166,7 +181,7 @@ if __name__ == "__main__":
     )
 
     # define metrics and metrics function
-    accuracy_metric = load_metric("accuracy")
+    accuracy_metric = evaluate.load("accuracy")
 
     trainer = DistillationTrainer(
         student_model,

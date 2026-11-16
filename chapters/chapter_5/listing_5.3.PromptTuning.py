@@ -67,7 +67,16 @@ def preprocess_function(examples):
 # Model Prompt Tuning
 if __name__ == "__main__":
     # Define training parameters
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    # Auto-select cuda > mps > cpu (override with the DEVICE env var)
+    device = os.getenv("DEVICE") or (
+        "cuda"
+        if torch.cuda.is_available()
+        else "mps"
+        if torch.backends.mps.is_available()
+        else "cpu"
+    )
+    # Set MAX_EVAL_SAMPLES to evaluate on a subset of the (large) test split
+    max_eval_samples = int(os.getenv("MAX_EVAL_SAMPLES", 0))
     model_name_or_path = "bigscience/bloomz-560m"
     tokenizer_name_or_path = "bigscience/bloomz-560m"
     dataset_name = "twitter_complaints"
@@ -138,19 +147,21 @@ if __name__ == "__main__":
     # Prepare Data Loaders
     train_dataset = processed_datasets["train"]
     eval_dataset = processed_datasets["test"]
+    if max_eval_samples:
+        eval_dataset = eval_dataset.select(range(max_eval_samples))
 
     train_dataloader = DataLoader(
         train_dataset,
         shuffle=True,
         collate_fn=default_data_collator,
         batch_size=batch_size,
-        pin_memory=True,
+        pin_memory=device == "cuda",
     )
     eval_dataloader = DataLoader(
         eval_dataset,
         collate_fn=default_data_collator,
         batch_size=batch_size,
-        pin_memory=True,
+        pin_memory=device == "cuda",
     )
 
     # Load Foundation Model

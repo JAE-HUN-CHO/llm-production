@@ -9,9 +9,21 @@ from transformers import (
 )
 from datasets import load_dataset
 
+# Repo-level data folder (independent of the current working directory)
+DATA_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "..", "data"
+)
+# Set MAX_STEPS / MAX_SAMPLES env vars to shrink the run (e.g. on a laptop)
+MAX_STEPS = int(os.getenv("MAX_STEPS", -1))
+MAX_SAMPLES = int(os.getenv("MAX_SAMPLES", 0))
+
 # Load and format the dataset
-dataset = load_dataset("text", data_files="./data/crimeandpunishment.txt")
+dataset = load_dataset(
+    "text", data_files=os.path.join(DATA_DIR, "crimeandpunishment.txt")
+)
 dataset = dataset.filter(lambda sentence: len(sentence["text"]) > 1)
+if MAX_SAMPLES:
+    dataset["train"] = dataset["train"].select(range(MAX_SAMPLES))
 print(dataset["train"][0])
 
 # Create model directory to save to
@@ -63,6 +75,7 @@ data_collator = DataCollatorForLanguageModeling(
 train_args = TrainingArguments(
     output_dir=model_dir,
     num_train_epochs=1,
+    max_steps=MAX_STEPS,
     per_device_train_batch_size=8,
     save_steps=5000,
     save_total_limit=2,

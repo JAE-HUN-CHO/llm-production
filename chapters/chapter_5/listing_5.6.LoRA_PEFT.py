@@ -18,10 +18,15 @@ import evaluate
 import torch
 import numpy as np
 
-model_checkpoint = "roberta-large"
+# Environment variables shrink the run (e.g. on a laptop without a GPU):
+# MODEL_CHECKPOINT=roberta-base NUM_EPOCHS=1 MAX_TRAIN_SAMPLES=200 ...
+model_checkpoint = os.getenv("MODEL_CHECKPOINT", "roberta-large")
 lr = 1e-3
 batch_size = 16
-num_epochs = 10
+num_epochs = int(os.getenv("NUM_EPOCHS", 10))
+max_train_samples = int(os.getenv("MAX_TRAIN_SAMPLES", 0))
+max_eval_samples = int(os.getenv("MAX_EVAL_SAMPLES", 0))
+max_steps = int(os.getenv("MAX_STEPS", -1))
 
 # Create model directory to save to
 model_dir = "./models/LoRAPEFT"
@@ -29,6 +34,12 @@ if not os.path.exists(model_dir):
     os.makedirs(model_dir)
 
 bionlp = load_dataset("tner/bionlp2004")
+if max_train_samples:
+    bionlp["train"] = bionlp["train"].select(range(max_train_samples))
+if max_eval_samples:
+    bionlp["validation"] = bionlp["validation"].select(
+        range(max_eval_samples)
+    )
 
 seqeval = evaluate.load("seqeval")
 
@@ -178,10 +189,12 @@ training_args = TrainingArguments(
     per_device_train_batch_size=batch_size,
     per_device_eval_batch_size=batch_size,
     num_train_epochs=num_epochs,
+    max_steps=max_steps,
     weight_decay=0.01,
     evaluation_strategy="epoch",
     save_strategy="epoch",
     load_best_model_at_end=True,
+    use_cpu=os.getenv("USE_CPU") == "1",  # force CPU (skip MPS/CUDA)
 )
 
 trainer = Trainer(

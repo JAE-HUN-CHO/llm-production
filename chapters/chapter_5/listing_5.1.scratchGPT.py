@@ -2,7 +2,13 @@ import os
 import torch
 from accelerate import Accelerator
 
-import bitsandbytes as bnb  # Comment this out if running on Windows
+try:
+    import bitsandbytes as bnb  # Not available on macOS / Windows
+except ImportError:
+    bnb = None
+
+# Repo-level data folder (independent of the current working directory)
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "data")
 
 
 # Define the overall GPT Architecture
@@ -167,22 +173,24 @@ def estimate_loss():
 # Train the model
 if __name__ == "__main__":
     # Parmeters for our experiment
-    batch_size = 64  # Number of utterances at once
-    block_size = 256  # Maximum context window size
-    max_iters = 5000
-    eval_interval = 500
+    # (override with environment variables to shrink the run, e.g. on a laptop)
+    batch_size = int(os.getenv("BATCH_SIZE", 64))  # Utterances at once
+    block_size = int(os.getenv("BLOCK_SIZE", 256))  # Max context window
+    max_iters = int(os.getenv("MAX_ITERS", 5000))
+    eval_interval = int(os.getenv("EVAL_INTERVAL", 500))
     learning_rate = 3e-4
-    eval_iters = 200
-    n_embed = 384
-    n_head = 6
-    n_layer = 6
+    eval_iters = int(os.getenv("EVAL_ITERS", 200))
+    n_embed = int(os.getenv("N_EMBED", 384))
+    n_head = int(os.getenv("N_HEAD", 6))
+    n_layer = int(os.getenv("N_LAYER", 6))
     dropout = 0.2
     accelerator = Accelerator()
     device = accelerator.device
-    doing_quantization = False  # Change to True if imported bitsandbytes
+    # Only possible where bitsandbytes is installed (CUDA machines)
+    doing_quantization = False
 
     # Dataset
-    with open("./data/crimeandpunishment.txt", "r", encoding="utf-8") as f:
+    with open(os.path.join(DATA_DIR, "crimeandpunishment.txt"), "r", encoding="utf-8") as f:
         text = f.read()
 
     # Character-based pseudo-tokenization
@@ -223,7 +231,7 @@ if __name__ == "__main__":
             losses = estimate_loss()
             print(
                 f"| step {iter}: train loss {losses['train']:.4f} "
-                "| validation loss {losses['val']:.4f} |"
+                f"| validation loss {losses['val']:.4f} |"
             )
 
         xb, yb = get_batch("train")
@@ -246,7 +254,9 @@ if __name__ == "__main__":
 
     # Load the saved model
     loaded_model = GPT().to(device)
-    loaded_model.load_state_dict(torch.load(model_path))
+    loaded_model.load_state_dict(
+        torch.load(model_path, map_location=device)
+    )
 
     # Test the loaded moel
     context = torch.zeros((1, 1), dtype=torch.long, device=device)
