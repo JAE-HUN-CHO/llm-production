@@ -1,5 +1,15 @@
 #!/bin/bash
 
+# If black/ruff are not on PATH, try the 'llmbook' conda env (see setup.sh)
+if ! command -v black &>/dev/null || ! command -v ruff &>/dev/null; then
+  for base in "${CONDA_PREFIX_1:-}" "$(conda info --base 2>/dev/null)"; do
+    if [ -n "$base" ] && [ -x "$base/envs/llmbook/bin/black" ]; then
+      export PATH="$base/envs/llmbook/bin:$PATH"
+      break
+    fi
+  done
+fi
+
 # Check if black and ruff are installed
 if ! command -v black &>/dev/null; then
   echo "'black' is not installed. Please install black with 'pip install black'."
