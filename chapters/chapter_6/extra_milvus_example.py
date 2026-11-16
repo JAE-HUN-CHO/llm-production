@@ -12,12 +12,16 @@ from datasets import load_dataset
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from sentence_transformers import SentenceTransformer
 
+import os
 from tqdm.auto import tqdm
 from uuid import uuid4
 
 
-# Connect to Milvus
-connections.connect("default", host="localhost", port="19530")
+# Connect to Milvus. By default use Milvus Lite (a local file-based DB that
+# needs no server, `pip install "pymilvus[milvus_lite]"`). To use a standalone
+# Milvus server instead, set MILVUS_URI=http://localhost:19530
+MILVUS_URI = os.getenv("MILVUS_URI", "./milvus_demo.db")
+connections.connect("default", uri=MILVUS_URI)
 
 
 class WikiDataIngestion:
@@ -32,13 +36,12 @@ class WikiDataIngestion:
     ):
         self.index = index
         self.wikidata = wikidata or load_dataset(
-            "wikipedia",
-            "20220301.simple",
-            split="train[:1000]",
-            trust_remote_code=True,
+            "wikimedia/wikipedia",
+            "20231101.simple",
+            split="train[:100]",
         )
         self.embedder = embedder or SentenceTransformer(
-            "krlvi/sentence-t5-base-nlpl-code_search_net"
+            "all-MiniLM-L6-v2"
         )
         self.tokenizer = tokenizer or AutoTokenizer.from_pretrained(
             "Deci/DeciCoder-1b"
@@ -77,7 +80,7 @@ class WikiDataIngestion:
     def upload_batch(self, texts, metadatas):
         ids = [str(uuid4()) for _ in range(len(texts))]
         embeddings = self.embedder.encode(texts)
-        self.index.insert([ids, embeddings, metadatas])
+        self.index.insert([ids, embeddings.tolist(), metadatas])
 
     def batch_upload(self):
         batch_texts = []
@@ -102,7 +105,7 @@ class WikiDataIngestion:
 
 if __name__ == "__main__":
     index_name = "milvus_llm_example2"
-    dim = 768
+    dim = 384  # embedding size of all-MiniLM-L6-v2
 
     # Create index if it doesn't exist
     has = utility.has_collection(index_name)
@@ -141,7 +144,7 @@ if __name__ == "__main__":
 
     # Build search index
     search_index = {
-        "index_type": "IVF_FLAT",
+        "index_type": "FLAT" if MILVUS_URI.endswith(".db") else "IVF_FLAT",
         "metric_type": "L2",
         "params": {"nlist": 128},  # number of clusters
     }

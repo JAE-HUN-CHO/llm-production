@@ -20,7 +20,7 @@ def save_qa_to_parquet(path):
         columns=["question_id", "questions", "answers"],
     )
     # Add embeddings and timestamps
-    qa["embeddings"] = qa.questions.apply(lambda x: model.encode(x))
+    qa["embeddings"] = list(model.encode(qa.questions.tolist(), batch_size=64))
     qa["created"] = datetime.datetime.utcnow()
     qa["datetime"] = qa["created"].dt.floor("h")
     # Save to parquet

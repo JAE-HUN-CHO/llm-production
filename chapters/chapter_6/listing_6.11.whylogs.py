@@ -5,7 +5,8 @@ import whylogs as why
 from langkit import llm_metrics
 from datasets import load_dataset
 
-OUTPUT_DIR = "logs"
+OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 class LoggingApp:

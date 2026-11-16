@@ -3,6 +3,7 @@ import grpc
 from typing import Optional
 from mlserver.codecs.string import StringRequestCodec
 import mlserver.grpc.converters as converters
+import mlserver.grpc.dataplane_pb2 as dataplane_pb
 import mlserver.grpc.dataplane_pb2_grpc as dataplane
 import mlserver.types as types
 
@@ -42,13 +43,13 @@ def connect_grpc(host: str) -> dataplane.GRPCInferenceServiceStub:
 
 def make_grpc_request(
     grpc_stub: dataplane.GRPCInferenceServiceStub, serialized_request: bytes
-) -> dataplane.ModelInferResponse:
+) -> dataplane_pb.ModelInferResponse:
     """Make the gRPC request"""
     return grpc_stub.ModelInfer(serialized_request)
 
 
 def deserialize_response(
-    response: dataplane.ModelInferResponse,
+    response: dataplane_pb.ModelInferResponse,
 ) -> str:
     """Deserialize the response from Protocol Buffer"""
     deserialized_response = converters.ModelInferResponseConverter.to_types(

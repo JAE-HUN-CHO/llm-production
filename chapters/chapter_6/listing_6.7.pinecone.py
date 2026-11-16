@@ -15,8 +15,11 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 # find ENV (cloud region) next to API key in console
 # PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT")
+# For Pinecone Local (docker emulator) set PINECONE_CONTROLLER_HOST, e.g.
+# http://localhost:5080 ; leave unset to use the Pinecone cloud.
+PINECONE_CONTROLLER_HOST = os.getenv("PINECONE_CONTROLLER_HOST")
 
-pc = Pinecone(api_key=PINECONE_API_KEY)
+pc = Pinecone(api_key=PINECONE_API_KEY, host=PINECONE_CONTROLLER_HOST)
 
 # pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
 
@@ -33,7 +36,7 @@ class WikiDataIngestion:
     ):
         self.index = index
         self.wikidata = wikidata or load_dataset(
-            "wikipedia", "20220301.simple", split="train[:10000]"
+            "wikimedia/wikipedia", "20231101.simple", split="train[:50]"
         )
         self.embedder = embedder or OpenAIEmbeddings(
             model="text-embedding-ada-002", openai_api_key=OPENAI_API_KEY
@@ -73,7 +76,7 @@ class WikiDataIngestion:
     def upload_batch(self, texts, metadatas):
         ids = [str(uuid4()) for _ in range(len(texts))]
         embeddings = self.embedder.embed_documents(texts)
-        self.index.upsert(vectors=zip(ids, embeddings, metadatas))
+        self.index.upsert(vectors=list(zip(ids, embeddings, metadatas)))
 
     def batch_upload(self):
         batch_texts = []
@@ -95,30 +98,40 @@ class WikiDataIngestion:
 
 
 if __name__ == "__main__":
-    index_name = "pincecone-llm-example"
+    index_name = "ch6-pinecone-llm-example"
+
+    # Use OpenAI embeddings only against the real OpenAI API; otherwise
+    # (no key, or a local OpenAI-compatible server such as Ollama) use a
+    # local sentence-transformers model.
+    use_openai = bool(OPENAI_API_KEY) and "api.openai.com" in (
+        os.getenv("OPENAI_BASE_URL") or "api.openai.com"
+    )
+    embedder = None
+    dimension = 1536  # 1536 dim of text-embedding-ada-002
+    if not use_openai:
+        embedder = SentenceTransformer("all-MiniLM-L6-v2")
+        dimension = embedder.get_sentence_embedding_dimension()  # 384
+        embedder.embed_documents = lambda *args, **kwargs: embedder.encode(
+            *args, **kwargs
+        ).tolist()
+        embedder.embed_query = embedder.embed_documents
 
     # Create index if it doesn't exist
     if index_name not in pc.list_indexes().names():
         pc.create_index(
             name=index_name,
             metric="cosine",
-            dimension=1536,  # 1536 dim of text-embedding-ada-002
+            dimension=dimension,
             spec=ServerlessSpec(cloud="aws", region="us-east-1"),
         )
 
     # Connect to index and describe stats
-    index = pc.Index(index_name)
+    if PINECONE_CONTROLLER_HOST:
+        # Pinecone Local: connect directly to the index host
+        index = pc.Index(host="http://" + pc.describe_index(index_name).host)
+    else:
+        index = pc.Index(index_name)
     print(index.describe_index_stats())
-
-    # Use a generic embedder if an openai api key is not provided
-    embedder = None
-    if not OPENAI_API_KEY:
-        embedder = SentenceTransformer(
-            "sangmini/msmarco-cotmae-MiniLM-L12_en-ko-ja"
-        )  # Also 1536 dim
-        embedder.embed_documents = lambda *args, **kwargs: embedder.encode(
-            *args, **kwargs
-        ).tolist()
 
     # Ingest data and describe stats anew
     wiki_data_ingestion = WikiDataIngestion(index, embedder=embedder)
@@ -127,7 +140,7 @@ if __name__ == "__main__":
 
     # Make a query
     query = "Did Johannes Gutenberg invent the printing press?"
-    embeddings = wiki_data_ingestion.embedder.embed_documents(query)
+    embeddings = wiki_data_ingestion.embedder.embed_query(query)
     results = index.query(vector=embeddings, top_k=3, include_metadata=True)
     print(results)
     # {'matches': [{'id': '18e2ab0a-f627-436a-b1ab-ed89b5b29c3b',
