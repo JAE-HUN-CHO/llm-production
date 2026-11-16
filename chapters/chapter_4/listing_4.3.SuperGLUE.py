@@ -1,3 +1,4 @@
+import os
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
@@ -33,7 +34,9 @@ tokenizer = AutoTokenizer.from_pretrained(model)
 model = AutoModelForCausalLM.from_pretrained(model)
 
 
-for row in dataset:
+# 전체 검증 세트는 매우 크므로 MAX_SAMPLES 환경변수로 샘플 수를 제한 가능
+max_samples = int(os.environ.get("MAX_SAMPLES", len(dataset)))
+for row in dataset.select(range(min(max_samples, len(dataset)))):
     # replace this with the correct input for your benchmark
     input_text = (
         f'Paragraph: {row["paragraph"]}\nQuestion: {row["question"]}'

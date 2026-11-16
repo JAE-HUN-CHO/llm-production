@@ -5,7 +5,12 @@ from evaluate import evaluator
 import evaluate
 import pandas as pd
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+elif torch.backends.mps.is_available():
+    device = torch.device("mps")
+else:
+    device = torch.device("cpu")
 
 # Pull model, data, and metrics
 pipe = pipeline(

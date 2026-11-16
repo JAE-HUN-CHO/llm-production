@@ -6,7 +6,9 @@ from tokenizers import ByteLevelBPETokenizer, SentencePieceBPETokenizer
 from tokenizers.processors import BertProcessing
 
 # Initialize the txts to train from
-paths = [str(x) for x in Path("./data/").glob("**/*.txt")]
+# 저장소 루트의 data/ 폴더(챕터 폴더 기준 ../../data)에서 텍스트를 읽는다
+data_dir = Path(__file__).resolve().parents[2] / "data"
+paths = [str(x) for x in data_dir.glob("**/*.txt")]
 
 # Train a Byte-Pair Encoding tokenizer
 bpe_tokenizer = ByteLevelBPETokenizer()

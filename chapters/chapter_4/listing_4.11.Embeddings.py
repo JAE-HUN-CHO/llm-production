@@ -19,8 +19,14 @@ def embed_text(example):
 print(f"Train 1: {embs_train[0]}")
 # Train 1: {'text': 'Sunday afternoon walking through Venice in the sun with @user ️ ️ ️ @ Abbot Kinney, Venice', 'label': 12}
 
-embs_train = embs_train.map(embed_text, batched=False)
-embs_test = embs_test.map(embed_text, batched=False)
+# new_fingerprint 를 직접 지정해 datasets 가 모델 전체를 dill 로 해시하다가
+# 멈추는 문제를 피한다.
+embs_train = embs_train.map(
+    embed_text, batched=False, new_fingerprint="tweet_eval_emoji_train_emb"
+)
+embs_test = embs_test.map(
+    embed_text, batched=False, new_fingerprint="tweet_eval_emoji_test_emb"
+)
 
 # Add Faiss index which allows similarity search
 embs_train.add_faiss_index("embedding")

@@ -10,8 +10,29 @@ import tarfile
 
 from utils import crop
 
-# Or use your own model
-client = OpenAI(api_key="INSERTYOURKEYHERE")
+
+
+# 루트 .env 의 OPENAI_BASE_URL / OPENAI_API_KEY / OLLAMA_MODEL 을 읽는다
+def _load_env():
+    path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "..", "..", ".env"
+    )
+    if not os.path.exists(path):
+        return
+    for line in open(path, encoding="utf-8"):
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, v = line.split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip())
+
+
+_load_env()
+
+# 로컬 Ollama(OpenAI 호환) 엔드포인트 또는 원하는 모델을 사용
+client = OpenAI(
+    api_key=os.environ.get("OPENAI_API_KEY", "ollama"),
+    base_url=os.environ.get("OPENAI_BASE_URL"),
+)
 choices = ["A", "B", "C", "D"]
 
 
@@ -87,7 +108,10 @@ def eval(args, subject, engine, dev_df, test_df):
         label = test_df.iloc[i, test_df.shape[1] - 1]
 
         # Prompt your model
-        while True:
+        # 로그확률(logprobs+echo)을 지원하지 않는 로컬 모델(Ollama 등)은
+        # chat 응답에서 A/B/C/D 를 파싱하는 방식으로 대체한다.
+        lprobs = None
+        for _ in range(3):
             try:
                 c = client.completions.create(
                     model=engine,
@@ -97,27 +121,40 @@ def eval(args, subject, engine, dev_df, test_df):
                     temperature=0,
                     echo=True,
                 )  # Use your model here!
+                lprobs = []
+                for ans in answers:
+                    lprobs.append(
+                        c.choices[0].logprobs.top_logprobs[-1].get(
+                            " {}".format(ans), -100
+                        )
+                    )
                 break
             except Exception:
-                print("pausing")
                 time.sleep(1)
-                continue
+        if lprobs is None:
+            resp = client.chat.completions.create(
+                model=engine,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt
+                        + " (Reply with only the letter of the answer.)",
+                    }
+                ],
+                max_tokens=2048,  # 추론 모델은 reasoning 에 토큰을 소비한다
+                temperature=0,
+            )
+            msg = resp.choices[0].message
+            text = (msg.content or "").strip()
+            found = [a for a in answers if text[:3].upper().startswith(a)]
+            if not found:
+                import re
+
+                m = re.findall(r"\b([A-D])\b", text)
+                found = [m[-1]] if m and m[-1] in answers else []
+            lprobs = [0 if a in found else -100 for a in answers]
 
         # Evaluate models response to questions answer
-        lprobs = []
-        for ans in answers:
-            try:
-                lprobs.append(
-                    c.choices[0].logprobs.top_logprobs[-1][
-                        " {}".format(ans)
-                    ]
-                )
-            except Exception:
-                print(
-                    "Warning: {} not found. "
-                    "Artificially adding log prob of -100.".format(ans)
-                )
-                lprobs.append(-100)
         pred = {0: "A", 1: "B", 2: "C", 3: "D"}[np.argmax(lprobs)]
         probs = softmax(np.array(lprobs))
 
@@ -155,12 +192,14 @@ def main(args):
         os.mkdir(args.save_dir)
     for engine in engines:
         if not os.path.exists(
-            os.path.join(args.save_dir, "results_{}".format(engine))
+            os.path.join(args.save_dir, "results_{}".format(engine.replace("/", "_").replace(":", "_")))
         ):
             os.mkdir(
-                os.path.join(args.save_dir, "results_{}".format(engine))
+                os.path.join(args.save_dir, "results_{}".format(engine.replace("/", "_").replace(":", "_")))
             )
 
+    if args.max_subjects:
+        subjects = subjects[: args.max_subjects]
     print(subjects)
     print(args)
 
@@ -184,6 +223,8 @@ def main(args):
                 ),
                 header=None,
             )
+            if args.max_questions:
+                test_df = test_df[: args.max_questions].copy()
 
             # Run evaluations
             cors, acc, probs = eval(args, subject, engine, dev_df, test_df)
@@ -199,7 +240,7 @@ def main(args):
             test_df.to_csv(
                 os.path.join(
                     args.save_dir,
-                    "results_{}".format(engine),
+                    "results_{}".format(engine.replace("/", "_").replace(":", "_")),
                     "{}.csv".format(subject),
                 ),
                 index=None,
@@ -223,10 +264,19 @@ if __name__ == "__main__":
     parser.add_argument(
         "--engine",
         "-e",
-        choices=["davinci", "curie", "babbage", "ada"],
-        default=["davinci", "curie", "babbage", "ada"],
+        default=[
+            os.environ.get(
+                "OLLAMA_MODEL", "davinci"
+            )
+        ],
         nargs="+",
         help="OpenAI model(s) you would like to evaluate",
+    )
+    parser.add_argument(
+        "--max_subjects", type=int, default=None, help="평가할 과목 수 제한"
+    )
+    parser.add_argument(
+        "--max_questions", type=int, default=None, help="과목당 문항 수 제한"
     )
     args = parser.parse_args()
     main(args)
