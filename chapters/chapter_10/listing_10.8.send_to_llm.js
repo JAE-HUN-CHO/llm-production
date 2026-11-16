@@ -25,7 +25,7 @@ if (manuallyTriggered && selection && !selection.isEmpty) {
 	// Return response as suggestion to VSCode editor
 	var responseText = await response.text();
 	
-	range = new vscode.Range(selection.end, selection.end)
+	const range = new vscode.Range(selection.end, selection.end)
 	return new Promise(resolve => {
 		resolve([{ insertText: responseText, range }])
 	})

@@ -1,3 +1,5 @@
+import os
+
 from pymilvus import (
     connections,
     utility,
@@ -17,7 +19,11 @@ from uuid import uuid4
 
 
 # Connect to Milvus
-connections.connect("default", host="localhost", port="19530")
+if os.environ.get("MILVUS_LITE_DB"):
+    # e.g. MILVUS_LITE_DB=./milvus_demo.db uses Milvus Lite (no server needed)
+    connections.connect("default", uri=os.environ["MILVUS_LITE_DB"])
+else:
+    connections.connect("default", host="localhost", port="19530")
 
 
 class PythonCodeIngestion:
@@ -132,7 +138,15 @@ if __name__ == "__main__":
     print(collection.num_entities)
 
     # Ingest data and show stats now that data is ingested
-    python_code_ingestion = PythonCodeIngestion(collection)
+    # Optional: ingest only the first N examples (e.g. INGEST_LIMIT=500)
+    python_code = None
+    if os.environ.get("INGEST_LIMIT"):
+        python_code = load_dataset(
+            "iamtarun/python_code_instructions_18k_alpaca", split="train"
+        ).select(range(int(os.environ["INGEST_LIMIT"])))
+    python_code_ingestion = PythonCodeIngestion(
+        collection, python_code=python_code
+    )
     python_code_ingestion.batch_upload()
     print(collection.num_entities)
 

@@ -1,4 +1,5 @@
 import argparse
+import os
 
 from fastapi import FastAPI, Request
 from fastapi.responses import Response
@@ -17,7 +18,16 @@ from transformers import (
 torch.backends.cuda.enable_mem_efficient_sdp(False)
 torch.backends.cuda.enable_flash_sdp(False)
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# cuda if available, otherwise cpu; set DEVICE=mps to try Apple GPU
+if os.environ.get("DEVICE"):
+    device = torch.device(os.environ["DEVICE"])
+elif torch.cuda.is_available():
+    device = torch.device("cuda")
+else:
+    device = torch.device("cpu")
+
+# bfloat16 is not supported on MPS/CPU, use it only on CUDA
+dtype = torch.bfloat16 if device.type == "cuda" else torch.float32
 
 # Define stopping behavior
 stop_tokens = ["def", "class", "Instruction", "Output"]
@@ -45,7 +55,7 @@ tokenizer.add_special_tokens(
     replace_additional_special_tokens=False,
 )
 model = AutoModelForCausalLM.from_pretrained(
-    "Deci/DeciCoder-1b", torch_dtype=torch.bfloat16, trust_remote_code=True
+    "Deci/DeciCoder-1b", torch_dtype=dtype, trust_remote_code=True
 )
 model = model.to(device)
 
