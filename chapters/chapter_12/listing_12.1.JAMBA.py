@@ -1,3 +1,4 @@
+from dotenv import load_dotenv
 from trl import SFTTrainer
 from peft import LoraConfig
 from transformers import (
@@ -9,6 +10,9 @@ import os
 
 import torch
 from datasets import load_dataset
+
+# 프로젝트 루트의 .env 를 환경변수로 로드
+load_dotenv()
 
 # Jamba (52B) needs large CUDA GPUs. Without CUDA (e.g. Apple Silicon)
 # we fall back to a tiny model so the same fine-tuning code still runs.

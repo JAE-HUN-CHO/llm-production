@@ -1,6 +1,10 @@
+from dotenv import load_dotenv
 import os
 import time
 from llama_cpp import Llama
+
+# 프로젝트 루트의 .env 를 환경변수로 로드
+load_dotenv()
 
 # 모델 경로는 LLAMA_MODEL_PATH 로 변경 가능 (예: 작은 TinyLlama GGUF)
 MODEL_PATH = os.getenv(

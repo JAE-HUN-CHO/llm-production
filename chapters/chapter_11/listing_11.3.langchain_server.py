@@ -1,3 +1,4 @@
+from dotenv import load_dotenv
 import os
 import json
 from langchain.chains import LLMChain
@@ -8,6 +9,9 @@ import numpy as np
 import pandas as pd
 from datasets import Dataset
 import tiktoken
+
+# 프로젝트 루트의 .env 를 환경변수로 로드
+load_dotenv()
 
 # 로컬 서버(Ollama 등)를 쓰려면 .env 의 OPENAI_API_BASE / OPENAI_API_KEY 사용
 os.environ.setdefault("OPENAI_API_KEY", "Your API Key")

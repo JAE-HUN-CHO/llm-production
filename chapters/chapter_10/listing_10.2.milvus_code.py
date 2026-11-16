@@ -1,3 +1,4 @@
+from dotenv import load_dotenv
 import os
 
 from pymilvus import (
@@ -16,6 +17,9 @@ from sentence_transformers import SentenceTransformer
 
 from tqdm.auto import tqdm
 from uuid import uuid4
+
+# 프로젝트 루트의 .env 를 환경변수로 로드
+load_dotenv()
 
 
 # Connect to Milvus

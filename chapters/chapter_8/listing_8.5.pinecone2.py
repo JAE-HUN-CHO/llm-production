@@ -1,3 +1,4 @@
+from dotenv import load_dotenv
 import os
 from langchain.chains import RetrievalQA
 from langchain.chains import RetrievalQAWithSourcesChain
@@ -5,6 +6,9 @@ from langchain_community.chat_models import ChatOpenAI
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_pinecone import PineconeVectorStore
 from pinecone import Pinecone, ServerlessSpec
+
+# 프로젝트 루트의 .env 를 환경변수로 로드
+load_dotenv()
 
 # get openai api key from platform.openai.com
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")

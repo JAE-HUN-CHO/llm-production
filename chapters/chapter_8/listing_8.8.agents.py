@@ -1,7 +1,11 @@
+from dotenv import load_dotenv
 import os
 from langchain_community.llms import LlamaCpp
 from langchain.agents import AgentType
 from langchain_experimental.agents import create_csv_agent
+
+# 프로젝트 루트의 .env 를 환경변수로 로드
+load_dotenv()
 
 
 # Load in the model

@@ -1,3 +1,4 @@
+from dotenv import load_dotenv
 import os
 from langchain_community.llms import LlamaCpp
 from langchain.chains.conversation.memory import (
@@ -6,6 +7,9 @@ from langchain.chains.conversation.memory import (
 from langchain.agents import load_tools, initialize_agent, Tool
 from langchain_experimental.tools import PythonREPLTool
 from langchain.tools import DuckDuckGoSearchRun, YouTubeSearchTool
+
+# 프로젝트 루트의 .env 를 환경변수로 로드
+load_dotenv()
 
 
 # Load in the model

@@ -1,3 +1,4 @@
+from dotenv import load_dotenv
 import argparse
 from openai import OpenAI
 
@@ -10,23 +11,11 @@ import tarfile
 
 from utils import crop
 
+# 프로젝트 루트의 .env 를 환경변수로 로드
+load_dotenv()
 
 
-# 루트 .env 의 OPENAI_BASE_URL / OPENAI_API_KEY / OLLAMA_MODEL 을 읽는다
-def _load_env():
-    path = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "..", "..", ".env"
-    )
-    if not os.path.exists(path):
-        return
-    for line in open(path, encoding="utf-8"):
-        line = line.strip()
-        if line and not line.startswith("#") and "=" in line:
-            k, v = line.split("=", 1)
-            os.environ.setdefault(k.strip(), v.strip())
 
-
-_load_env()
 
 # 로컬 Ollama(OpenAI 호환) 엔드포인트 또는 원하는 모델을 사용
 client = OpenAI(

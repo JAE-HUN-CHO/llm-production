@@ -1,5 +1,9 @@
+from dotenv import load_dotenv
 import os
 from guidance import models, gen, select
+
+# 프로젝트 루트의 .env 를 환경변수로 로드
+load_dotenv()
 
 # Load a HuggingFace Transformers model
 falcon = models.Transformers(os.getenv("GUIDANCE_MODEL", "tiiuae/falcon-rw-1b"))

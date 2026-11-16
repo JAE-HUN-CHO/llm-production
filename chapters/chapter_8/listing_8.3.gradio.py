@@ -1,7 +1,11 @@
+from dotenv import load_dotenv
 import os
 import gradio as gr
 import requests
 import json
+
+# 프로젝트 루트의 .env 를 환경변수로 로드
+load_dotenv()
 
 url = os.getenv("BACKEND_URL", "http://localhost:8000/generate")  # point to your model's API
 

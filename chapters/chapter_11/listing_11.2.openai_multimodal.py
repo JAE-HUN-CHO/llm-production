@@ -1,9 +1,13 @@
+from dotenv import load_dotenv
 import os
 import openai
 
 import base64
 from io import BytesIO
 from PIL import Image
+
+# 프로젝트 루트의 .env 를 환경변수로 로드
+load_dotenv()
 
 
 def encode_image(image_path, max_image=512):

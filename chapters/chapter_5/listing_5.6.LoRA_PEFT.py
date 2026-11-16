@@ -1,3 +1,4 @@
+from dotenv import load_dotenv
 import os
 from datasets import load_dataset
 from transformers import (
@@ -17,6 +18,9 @@ from peft import (
 import evaluate
 import torch
 import numpy as np
+
+# 프로젝트 루트의 .env 를 환경변수로 로드
+load_dotenv()
 
 # Environment variables shrink the run (e.g. on a laptop without a GPU):
 # MODEL_CHECKPOINT=roberta-base NUM_EPOCHS=1 MAX_TRAIN_SAMPLES=200 ...

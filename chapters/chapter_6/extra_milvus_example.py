@@ -1,3 +1,4 @@
+from dotenv import load_dotenv
 from pymilvus import (
     connections,
     utility,
@@ -15,6 +16,9 @@ from sentence_transformers import SentenceTransformer
 import os
 from tqdm.auto import tqdm
 from uuid import uuid4
+
+# 프로젝트 루트의 .env 를 환경변수로 로드
+load_dotenv()
 
 
 # Connect to Milvus. By default use Milvus Lite (a local file-based DB that

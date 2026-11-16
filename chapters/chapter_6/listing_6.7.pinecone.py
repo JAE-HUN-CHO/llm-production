@@ -1,3 +1,4 @@
+from dotenv import load_dotenv
 import os
 import tiktoken
 from datasets import load_dataset
@@ -8,6 +9,9 @@ from sentence_transformers import SentenceTransformer
 
 from tqdm.auto import tqdm
 from uuid import uuid4
+
+# 프로젝트 루트의 .env 를 환경변수로 로드
+load_dotenv()
 
 # get openai api key from platform.openai.com
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")

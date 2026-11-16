@@ -1,3 +1,4 @@
+from dotenv import load_dotenv
 from diffusers import (
     StableDiffusionPipeline,
     UNet2DConditionModel,
@@ -12,6 +13,9 @@ import torch
 import numpy as np
 
 from tqdm.auto import tqdm
+
+# 프로젝트 루트의 .env 를 환경변수로 로드
+load_dotenv()
 
 
 # Device auto-selection (cuda / mps / cpu); model id and step count can be

@@ -1,6 +1,10 @@
+from dotenv import load_dotenv
 import os
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM
+
+# 프로젝트 루트의 .env 를 환경변수로 로드
+load_dotenv()
 
 # SuperGlue has mutliple test datasets, options are boolq,
 # cb, copa, multirc, record, rte, wic, wsc, wsc.fixed, axb, axg

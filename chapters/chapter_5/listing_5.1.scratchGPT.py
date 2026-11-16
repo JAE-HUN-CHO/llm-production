@@ -1,6 +1,10 @@
+from dotenv import load_dotenv
 import os
 import torch
 from accelerate import Accelerator
+
+# 프로젝트 루트의 .env 를 환경변수로 로드
+load_dotenv()
 
 try:
     import bitsandbytes as bnb  # Not available on macOS / Windows

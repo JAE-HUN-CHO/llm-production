@@ -1,3 +1,4 @@
+from dotenv import load_dotenv
 import argparse
 import os
 import asyncio
@@ -17,6 +18,9 @@ from transformers import (
     TextIteratorStreamer,
 )
 from threading import Thread
+
+# 프로젝트 루트의 .env 를 환경변수로 로드
+load_dotenv()
 
 # device 자동 선택: cuda > mps > cpu
 if os.getenv("DEVICE"):  # 강제 지정: DEVICE=cpu|mps|cuda

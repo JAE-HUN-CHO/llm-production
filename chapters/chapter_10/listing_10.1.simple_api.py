@@ -1,3 +1,4 @@
+from dotenv import load_dotenv
 import argparse
 import os
 
@@ -12,6 +13,9 @@ from transformers import (
     StoppingCriteria,
     StoppingCriteriaList,
 )
+
+# 프로젝트 루트의 .env 를 환경변수로 로드
+load_dotenv()
 
 
 # Torch settings

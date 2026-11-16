@@ -1,5 +1,9 @@
+from dotenv import load_dotenv
 import os
 from transformers import AutoModelForCausalLM, AutoTokenizer
+
+# 프로젝트 루트의 .env 를 환경변수로 로드
+load_dotenv()
 
 # full "bigscience/bloom" is 176B params; override via env var (e.g. bigscience/bloom-3b)
 MODEL_NAME = os.environ.get("BLOOM_MODEL", "bigscience/bloom")

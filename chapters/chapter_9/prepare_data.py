@@ -5,11 +5,15 @@ Creates (in ../../data, skipped if they already exist):
   Lima-train.jsonl / Lima-test.jsonl
 Set N_TRAIN / N_VALID to change how many TinyStories lines are written.
 """
+from dotenv import load_dotenv
 import json
 import os
 
 from datasets import load_dataset
 from huggingface_hub import hf_hub_download
+
+# 프로젝트 루트의 .env 를 환경변수로 로드
+load_dotenv()
 
 DATA_DIR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "..", "data"

@@ -1,5 +1,9 @@
+from dotenv import load_dotenv
 import os
 import openai
+
+# 프로젝트 루트의 .env 를 환경변수로 로드
+load_dotenv()
 
 client = openai.OpenAI(
     base_url=os.getenv("OPENAI_BASE_URL", "http://0.0.0.0:8080/v1"),  # replace with your pi's ip address

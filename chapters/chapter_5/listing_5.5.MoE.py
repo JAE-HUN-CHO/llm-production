@@ -1,3 +1,4 @@
+from dotenv import load_dotenv
 import os
 from transformers import (
     AutoTokenizer,
@@ -8,6 +9,9 @@ from transformers import (
 )
 from datasets import load_dataset
 import torch
+
+# 프로젝트 루트의 .env 를 환경변수로 로드
+load_dotenv()
 
 # Repo-level data folder (independent of the current working directory)
 DATA_DIR = os.path.join(

@@ -1,16 +1,21 @@
+from dotenv import load_dotenv
 import os
 import random
 
 import torch
 from datasets import load_dataset
 
-# FORCE_CPU=1 hides the Apple GPU (mps) from torch, e.g. when it is busy
-if os.getenv("FORCE_CPU", "0") == "1":
-    torch.backends.mps.is_available = lambda: False
 from tqdm import tqdm
 from transformers import GPT2Tokenizer
 
 from trl import AutoModelForCausalLMWithValueHead, PPOConfig, PPOTrainer
+
+# 프로젝트 루트의 .env 를 환경변수로 로드
+load_dotenv()
+
+# FORCE_CPU=1 hides the Apple GPU (mps) from torch, e.g. when it is busy
+if os.getenv("FORCE_CPU", "0") == "1":
+    torch.backends.mps.is_available = lambda: False
 
 # Set up dataset
 dataset = load_dataset("HuggingFaceH4/cherry_picked_prompts", split="train")

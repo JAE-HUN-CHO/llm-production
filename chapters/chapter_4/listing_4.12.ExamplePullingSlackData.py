@@ -1,7 +1,11 @@
+from dotenv import load_dotenv
 import os
 
 import pandas
 import slack_sdk
+
+# 프로젝트 루트의 .env 를 환경변수로 로드
+load_dotenv()
 
 # 토큰은 환경변수 SLACK_TOKEN 으로 전달한다. 없으면 실제 Slack API 대신
 # 저장소의 로컬 데이터(data/Slack_Dataset.csv)를 사용하는 mock 경로로 동작한다.
