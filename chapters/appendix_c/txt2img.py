@@ -4,13 +4,33 @@ from diffusers import (
     AutoencoderKL,
     LMSDiscreteScheduler,
 )
-from torch import autocast
 from PIL import Image
 from transformers import CLIPTextModel, CLIPTokenizer
+import contextlib
+import os
 import torch
 import numpy as np
 
 from tqdm.auto import tqdm
+
+
+# Device auto-selection (cuda / mps / cpu); model id and step count can be
+# overridden through environment variables for quick local tests.
+DEVICE = (
+    "cuda"
+    if torch.cuda.is_available()
+    else "mps"
+    if torch.backends.mps.is_available()
+    else "cpu"
+)
+SD_MODEL = os.environ.get(
+    "SD_MODEL", "stable-diffusion-v1-5/stable-diffusion-v1-5"
+)
+N_STEPS = int(os.environ.get("SD_STEPS", "28"))
+N_IMAGES = int(os.environ.get("SD_N_IMAGES", "4"))
+SIZE = int(os.environ.get("SD_SIZE", "512"))
+OUT_DIR = os.environ.get("SD_OUT_DIR", ".")
+os.makedirs(OUT_DIR, exist_ok=True)
 
 
 def image_grid(imgs, rows, cols):
@@ -25,30 +45,30 @@ def image_grid(imgs, rows, cols):
 
 # Simple
 pipe = StableDiffusionPipeline.from_pretrained(
-    "runwayml/stable-diffusion-v1-5",
-).to("cuda")
+    SD_MODEL,
+).to(DEVICE)
 
-n_images = 4
+n_images = N_IMAGES
 prompts = [
     "masterpiece, best quality, a photo of a horse riding an astronaut, "
     "trending on artstation, photorealistic, qhd, rtx on, 8k"
 ] * n_images
-images = pipe(prompts, num_inference_steps=28).images
+images = pipe(prompts, num_inference_steps=N_STEPS, height=SIZE, width=SIZE).images
 
-image_grid(images, rows=2, cols=2)
+image_grid(images, rows=2, cols=2).save(os.path.join(OUT_DIR, "grid_simple.png"))
 
 
 # Detailed
 tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-large-patch14")
 text_encoder = CLIPTextModel.from_pretrained(
     "openai/clip-vit-large-patch14"
-).to("cuda")
+).to(DEVICE)
 vae = AutoencoderKL.from_pretrained(
-    "runwayml/stable-diffusion-v1-5", subfolder="vae"
-).to("cuda")
+    SD_MODEL, subfolder="vae"
+).to(DEVICE)
 model = UNet2DConditionModel.from_pretrained(
-    "runwayml/stable-diffusion-v1-5", subfolder="unet"
-).to("cuda")
+    SD_MODEL, subfolder="unet"
+).to(DEVICE)
 
 scheduler = LMSDiscreteScheduler(
     beta_start=0.00085,
@@ -68,7 +88,7 @@ def get_text_embeds(prompt):
         return_tensors="pt",
     )
     with torch.no_grad():
-        text_embeddings = text_encoder(text_input.input_ids.to("cuda"))[0]
+        text_embeddings = text_encoder(text_input.input_ids.to(DEVICE))[0]
 
     # Do the same for unconditional embeddings
     uncond_input = tokenizer(
@@ -78,7 +98,7 @@ def get_text_embeds(prompt):
         return_tensors="pt",
     )
     with torch.no_grad():
-        uncond_embeddings = text_encoder(uncond_input.input_ids.to("cuda"))[
+        uncond_embeddings = text_encoder(uncond_input.input_ids.to(DEVICE))[
             0
         ]
 
@@ -89,9 +109,9 @@ def get_text_embeds(prompt):
 
 def produce_latents(
     text_embeddings,
-    height=512,
-    width=512,
-    num_inference_steps=28,
+    height=SIZE,
+    width=SIZE,
+    num_inference_steps=N_STEPS,
     guidance_scale=11,
     latents=None,
     return_all_latents=False,
@@ -100,18 +120,23 @@ def produce_latents(
         latents = torch.randn(
             (
                 text_embeddings.shape[0] // 2,
-                model.in_channels,
+                model.config.in_channels,
                 height // 8,
                 width // 8,
             )
         )
-    latents = latents.to("cuda")
+    latents = latents.to(DEVICE)
 
     scheduler.set_timesteps(num_inference_steps)
     latents = latents * scheduler.sigmas[0]
 
     latent_hist = [latents]
-    with autocast("cuda"):
+    ctx = (
+        torch.autocast("cuda")
+        if DEVICE == "cuda"
+        else contextlib.nullcontext()
+    )
+    with ctx:
         for i, t in tqdm(enumerate(scheduler.timesteps)):
             # expand the latents to avoid doing two forward passes.
             latent_model_input = torch.cat([latents] * 2)
@@ -153,7 +178,7 @@ def decode_img_latents(latents):
 
     imgs = (imgs / 2 + 0.5).clamp(0, 1)
     imgs = imgs.detach().cpu().permute(0, 2, 3, 1)
-    imgs = (imgs + 1.0) * 127.5
+    imgs = imgs * 255.0
     imgs = imgs.numpy().astype(np.uint8)
     pil_images = [Image.fromarray(image) for image in imgs]
     return pil_images
@@ -161,9 +186,9 @@ def decode_img_latents(latents):
 
 def prompt_to_img(
     prompts,
-    height=512,
-    width=512,
-    num_inference_steps=28,
+    height=SIZE,
+    width=SIZE,
+    num_inference_steps=N_STEPS,
     guidance_scale=11,
     latents=None,
 ):
@@ -190,7 +215,7 @@ def prompt_to_img(
 
 
 imgs = prompt_to_img(
-    ["Super cool fantasty knight, intricate armor, 8k"] * 4
+    ["Super cool fantasty knight, intricate armor, 8k"] * N_IMAGES
 )
 
-image_grid(imgs, rows=2, cols=2)
+image_grid(imgs, rows=2, cols=2).save(os.path.join(OUT_DIR, "grid_detailed.png"))
