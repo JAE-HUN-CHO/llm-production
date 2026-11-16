@@ -15,11 +15,11 @@ Create an environment and install dependencies:
 ```bash
 make setup
 ```
-This will create an environment for each chapter, named after the chapter directory, e.g. chapter_1.
+This will create a single environment `llm-production` (Python 3.10) that runs every chapter, using the root `requirements.txt`.
 
 Activate environment:
 ```bash
-conda activate llmbook
+conda activate llm-production
 ```
 
 Deactivate environment:

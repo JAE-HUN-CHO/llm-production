@@ -25,7 +25,7 @@ conda activate $ENV_NAME
 
 # deepeval 은 feast 와 protobuf 요구 버전이 충돌하므로 먼저 설치하고, 나머지가 protobuf 를 낮춘다
 pip install deepeval==1.1.0
-pip install -r requirements-all.txt
+pip install -r requirements.txt
 pip install --no-deps langchain-pinecone==0.1.1
 
 conda deactivate
