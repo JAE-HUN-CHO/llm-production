@@ -1,2 +1,3 @@
 openai==1.19.0
 httpx==0.27.2  # openai 1.x 는 httpx<0.28 필요 (proxies 인자 오류 방지)
+python-dotenv==1.0.1

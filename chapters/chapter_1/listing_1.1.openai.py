@@ -1,5 +1,10 @@
 import os
+
+from dotenv import load_dotenv
 from openai import OpenAI
+
+# 프로젝트 루트의 .env 를 찾아 환경변수로 로드 (상위 디렉터리까지 탐색)
+load_dotenv()
 
 # Load your API key from an environment variable
 client = OpenAI(
