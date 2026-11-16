@@ -182,3 +182,6 @@ data/CombinedTinyStories-train.txt
 data/CombinedTinyStories-valid.txt
 data/Lima-test.csv
 data/Lima-train.csv
+
+# CPS workshop plugin state
+.cps/
