@@ -2,6 +2,19 @@ import copy
 import torch
 import torch.ao.quantization as q
 
+# --- demo setup (the book assumes `model_fp32` and `dataset` already exist) ---
+if "model_fp32" not in globals():
+    model_fp32 = torch.nn.Sequential(
+        torch.ao.quantization.QuantStub(),
+        torch.nn.Linear(16, 8),
+        torch.nn.ReLU(),
+        torch.ao.quantization.DeQuantStub(),
+    )
+if "dataset" not in globals():
+    dataset = [torch.randn(4, 16) for _ in range(8)]
+torch.backends.quantized.engine = "qnnpack"
+# -------------------------------------------------------------------------------
+
 # deep copy the original model as quantization is done in place
 model_to_quantize = copy.deepcopy(model_fp32)
 model_to_quantize.eval()
@@ -19,3 +32,5 @@ with torch.inference_mode():
 
 # quantize
 model_quantized = q.convert(prepared_model)
+
+print(model_quantized)
