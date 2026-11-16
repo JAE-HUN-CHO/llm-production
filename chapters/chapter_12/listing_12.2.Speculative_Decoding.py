@@ -11,14 +11,25 @@ from tqdm import tqdm
 
 from evaluate import load
 
-device = "cuda:0" if torch.cuda.is_available() else "cpu"
+if torch.cuda.is_available():
+    device = "cuda:0"
+else:
+    # mps lacks some ops used by Whisper generation (e.g. aten::isin)
+    device = "cpu"
 print(f"Device: {device}")
 attention = "sdpa"
 print(attention)
 torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
 
-model_id = "openai/whisper-large-v3"
-assistant_model_id = "distil-whisper/distil-large-v3"
+if torch.cuda.is_available():
+    model_id = "openai/whisper-large-v3"
+    assistant_model_id = "distil-whisper/distil-large-v3"
+    base_kwargs = {"language": "en", "task": "transcribe"}
+else:
+    # Smaller (English-only) pair so it runs on Apple Silicon / CPU
+    model_id = "openai/whisper-small.en"
+    assistant_model_id = "distil-whisper/distil-small.en"
+    base_kwargs = {}
 model = AutoModelForSpeechSeq2Seq.from_pretrained(
     model_id,
     low_cpu_mem_usage=False,
@@ -41,17 +52,13 @@ dataset = load_dataset(
     split="validation",
     trust_remote_code=True,
 )
+if not torch.cuda.is_available():
+    # keep the CPU run short
+    dataset = dataset.select(range(min(5, len(dataset))))
 wer = load("wer")
 
-generate_kwargs_1 = {
-    "language": "en",
-    "task": "transcribe",
-}
-generate_kwargs_2 = {
-    "language": "en",
-    "task": "transcribe",
-    "assistant_model": assistant_model,
-}
+generate_kwargs_1 = {**base_kwargs}
+generate_kwargs_2 = {**base_kwargs, "assistant_model": assistant_model}
 
 spec_decoding = False
 for i, generate_kwargs in enumerate([generate_kwargs_1, generate_kwargs_2]):

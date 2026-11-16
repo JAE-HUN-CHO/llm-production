@@ -6,26 +6,39 @@ from transformers import (
 import torch
 from time import perf_counter
 
-model_id = "nvidia/Llama3-ChatQA-1.5-8B"
-device = "cuda:0" if torch.cuda.is_available() else "cpu"
-
-quantization_config = BitsAndBytesConfig(
-    load_in_4bit=True,
-    bnb_4bit_use_double_quant=True,
-    bnb_4bit_quant_type="nf4",
-    bnb_4bit_compute_dtype=torch.bfloat16,
-)
+if torch.cuda.is_available():
+    model_id = "nvidia/Llama3-ChatQA-1.5-8B"
+    device = "cuda:0"
+    quantization_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_use_double_quant=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype=torch.bfloat16,
+    )
+    model_kwargs = {
+        "quantization_config": quantization_config,
+        "torch_dtype": torch.float16,
+    }
+else:
+    # No CUDA (e.g. Apple Silicon): bitsandbytes 4-bit and an 8B model are
+    # not practical, so use a small model on the CPU instead.
+    model_id = "Qwen/Qwen2.5-0.5B-Instruct"
+    device = "cpu"
+    model_kwargs = {"torch_dtype": torch.float32}
 
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 tokenizer.pad_token = tokenizer.eos_token
 model = AutoModelForCausalLM.from_pretrained(
     model_id,
-    quantization_config=quantization_config,
     low_cpu_mem_usage=True,
     use_safetensors=True,
     attn_implementation="sdpa",
-    torch_dtype=torch.float16,
+    **model_kwargs,
 )
+if device == "cpu":
+    model = model.to(device)
+hidden_size = model.config.hidden_size
+vocab_size = model.config.vocab_size
 
 # Traditional Generation
 system = (
@@ -58,14 +71,13 @@ User: {question_2}
 
 Assistant:"""
 start = perf_counter()
-inputs = tokenizer(tokenizer.bos_token + prompt, return_tensors="pt").to(
-    device
-)
+bos = tokenizer.bos_token or ""  # some tokenizers (e.g. Qwen) have none
+inputs = tokenizer(bos + prompt, return_tensors="pt").to(device)
 
-terminators = [
-    tokenizer.eos_token_id,
-    tokenizer.convert_tokens_to_ids("<|eot_id|>"),
-]
+terminators = [tokenizer.eos_token_id]
+eot_id = tokenizer.convert_tokens_to_ids("<|eot_id|>")
+if eot_id is not None and eot_id != tokenizer.unk_token_id:
+    terminators.append(eot_id)
 text_outputs = model.generate(
     input_ids=inputs.input_ids,
     attention_mask=inputs.attention_mask,
@@ -113,12 +125,14 @@ class CustomLinearClassifier(torch.nn.Module):
         super(CustomLinearClassifier, self).__init__()
         self.num_labels = num_labels
         self.dropout = torch.nn.Dropout(0.1)
-        self.ff = torch.nn.Linear(4096, num_labels, dtype=torch.float16)
+        self.ff = torch.nn.Linear(
+            hidden_size, num_labels, dtype=model.dtype
+        )
 
     def forward(self, input_ids=None, targets=None):
         sequence = self.dropout(input_ids)
 
-        logits = self.ff(sequence[:, 0, :].view(-1, 4096))
+        logits = self.ff(sequence[:, 0, :].view(-1, hidden_size))
 
         if targets is not None:
             loss = torch.nn.functional.cross_entropy(
@@ -129,7 +143,7 @@ class CustomLinearClassifier(torch.nn.Module):
             return logits
 
 
-custom_LMHead = CustomLinearClassifier(128256).to(device)
+custom_LMHead = CustomLinearClassifier(vocab_size).to(device)
 
 with torch.no_grad():
     start = perf_counter()

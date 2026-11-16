@@ -7,28 +7,37 @@ from dsp.modules.lm import LM
 from dspy.evaluate import Evaluate
 from dspy.teleprompt import BootstrapFewShot
 
-model_name = "meta-llama/Meta-Llama-3-8B-Instruct"
-quantization_config = BitsAndBytesConfig(
-    load_in_4bit=True,
-    bnb_4bit_use_double_quant=True,
-    bnb_4bit_quant_type="nf4",
-    bnb_4bit_compute_dtype=torch.bfloat16,
-)
-
-
-model = AutoModelForCausalLM.from_pretrained(
-    model_name,
-    device_map="auto",
-    quantization_config=quantization_config,
-    attn_implementation="sdpa",
-)
+if torch.cuda.is_available():
+    model_name = "meta-llama/Meta-Llama-3-8B-Instruct"
+    quantization_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_use_double_quant=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype=torch.bfloat16,
+    )
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        device_map="auto",
+        quantization_config=quantization_config,
+        attn_implementation="sdpa",
+    )
+    n_train, n_dev = 30, 100
+else:
+    # No CUDA (e.g. Apple Silicon): bitsandbytes 4-bit and an 8B model are
+    # not practical, so use a small instruct model on mps/cpu instead.
+    model_name = "Qwen/Qwen2.5-0.5B-Instruct"
+    device = "cpu"  # mps is slow/unsupported for some ops here
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name, torch_dtype=torch.float32, attn_implementation="sdpa"
+    ).to(device)
+    n_train, n_dev = 3, 5
 tokenizer = AutoTokenizer.from_pretrained(
     model_name,
     use_fast=True,
 )
 
 gms8k = GSM8K()
-gsm8k_trainset, gsm8k_devset = gms8k.train[:30], gms8k.dev[:100]
+gsm8k_trainset, gsm8k_devset = gms8k.train[:n_train], gms8k.dev[:n_dev]
 
 
 def openai_to_hf(**kwargs):
@@ -186,9 +195,7 @@ class CoT(dspy.Module):
 # Optimize the prompts
 print("Creating Bootstrapped Few Shot Prompt")
 teleprompter = BootstrapFewShot(metric=gsm8k_metric, **config)
-optimized_cot = teleprompter.compile(
-    CoT(), trainset=gsm8k_trainset, valset=gsm8k_devset
-)
+optimized_cot = teleprompter.compile(CoT(), trainset=gsm8k_trainset)
 optimized_cot.save("optimized_llama3_math_cot.json")
 
 # Evaluate our `optimized_cot` program.
