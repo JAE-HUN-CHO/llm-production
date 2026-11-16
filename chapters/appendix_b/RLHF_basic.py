@@ -1,5 +1,12 @@
+import os
+import random
+
 import torch
 from datasets import load_dataset
+
+# FORCE_CPU=1 hides the Apple GPU (mps) from torch, e.g. when it is busy
+if os.getenv("FORCE_CPU", "0") == "1":
+    torch.backends.mps.is_available = lambda: False
 from tqdm import tqdm
 from transformers import GPT2Tokenizer
 
@@ -48,7 +55,14 @@ generation_kwargs = {
     "max_new_tokens": 20,
 }
 
-for query in tqdm(ppo_trainer.dataloader.dataset):
+# AUTO_REWARD=1 gives a random reward instead of asking a human
+# MAX_QUERIES limits the number of queries (0 = all)
+AUTO_REWARD = os.getenv("AUTO_REWARD", "0") == "1"
+MAX_QUERIES = int(os.getenv("MAX_QUERIES", 0))
+
+for n, query in enumerate(tqdm(ppo_trainer.dataloader.dataset)):
+    if MAX_QUERIES and n >= MAX_QUERIES:
+        break
     query_text = query["query"]
     query_tensor = tokenizer.encode(query_text, return_tensors="pt")
 
@@ -59,13 +73,16 @@ for query in tqdm(ppo_trainer.dataloader.dataset):
     response = tokenizer.decode(response_tensor[0])
 
     # Get reward score from user
-    human_feedback = int(
-        input(
-            f"Query: {query_text}\n"
-            f"Response: {response}\n"
-            "Reward as integer:"
+    if AUTO_REWARD:
+        human_feedback = random.randint(-1, 1)
+    else:
+        human_feedback = int(
+            input(
+                f"Query: {query_text}\n"
+                f"Response: {response}\n"
+                "Reward as integer:"
+            )
         )
-    )
     reward = torch.tensor(float(human_feedback))
 
     # Run PPO step
@@ -75,4 +92,7 @@ for query in tqdm(ppo_trainer.dataloader.dataset):
     ppo_trainer.log_stats(stats, query, reward)
 
 # Save model
-ppo_trainer.save_pretrained("./models/my_ppo_model")
+save_dir = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "models", "my_ppo_model"
+)
+ppo_trainer.save_pretrained(save_dir)
