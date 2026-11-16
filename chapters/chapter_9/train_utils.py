@@ -56,7 +56,10 @@ from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
 )
 
 # Model loading
-from bitsandbytes.nn import Linear4bit, Params4bit
+try:
+    from bitsandbytes.nn import Linear4bit, Params4bit
+except ImportError:  # bitsandbytes is CUDA/Linux only (not available on macOS)
+    Linear4bit = Params4bit = None
 from accelerate import init_empty_weights
 from peft import get_peft_model, LoraConfig, TaskType
 from transformers.utils import (
@@ -78,6 +81,42 @@ from transformers.models.llama.modeling_llama import (
     LLAMA_ATTENTION_CLASSES,
     LlamaMLP,
 )
+
+# CUDA availability. Without CUDA (e.g. Apple Silicon) we fall back to the CPU + gloo path.
+HAS_CUDA = torch.cuda.is_available()
+QUANTIZED_TRAIN_TYPES = ["qlora", "custom_qlora", "hqq_lora"]
+
+
+def _mem_allocated(local_rank: int = 0) -> int:
+    """GPU memory allocated in bytes (0 on CPU where there is no allocator stat)."""
+    return _mem_allocated(local_rank) if HAS_CUDA else 0
+
+
+def _cuda_sync():
+    if HAS_CUDA:
+        torch.cuda.synchronize()
+
+
+class _Timer:
+    """Drop-in for torch.cuda.Event(enable_timing=True) that also works on CPU."""
+
+    def __init__(self):
+        self.cuda_event = (
+            torch.cuda.Event(enable_timing=True) if HAS_CUDA else None
+        )
+        self.t = None
+
+    def record(self):
+        if self.cuda_event is not None:
+            self.cuda_event.record()
+        self.t = time.time()
+
+    def elapsed_time(self, end) -> float:
+        """Milliseconds, like torch.cuda.Event.elapsed_time."""
+        if self.cuda_event is not None:
+            return self.cuda_event.elapsed_time(end.cuda_event)
+        return (end.t - self.t) * 1000
+
 
 # To get rid of tokenizers warnings for now
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -413,6 +452,11 @@ def get_dataloader(tokenizer: PreTrainedTokenizerFast, args: Dict):
         dataset = dataset.shuffle(seed=args["seed"])
         dataset = dataset.select(range(1000, len(dataset)))
 
+    # optionally keep only the first N samples (handy for smoke tests / CPU runs)
+    max_samples = args.get("max_train_samples", -1)
+    if max_samples is not None and max_samples > 0:
+        dataset = dataset.select(range(min(max_samples, len(dataset))))
+
     # truncate dataset so it's evenly divisible by grad_accumulation_steps
     dataset = dataset.select(
         range(
@@ -677,7 +721,7 @@ def fsdp_main(local_rank: int, world_size: int, args: Dict):
     # Setup and initialize the process group
     os.environ["MASTER_ADDR"] = args["master_addr"]
     os.environ["MASTER_PORT"] = args["master_port"]
-    if "SLURM_PROCID" in os.environ:
+    if "SLURM_PROCID" in os.environ and HAS_CUDA:
         # assumes same number of GPUs per node.
         rank = (
             int(os.environ["SLURM_PROCID"]) * torch.cuda.device_count()
@@ -686,8 +730,14 @@ def fsdp_main(local_rank: int, world_size: int, args: Dict):
     else:
         rank = local_rank
 
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
-    torch.cuda.set_device(local_rank)
+    if HAS_CUDA:
+        dist.init_process_group("nccl", rank=rank, world_size=world_size)
+        torch.cuda.set_device(local_rank)
+        device = torch.device("cuda", local_rank)
+    else:
+        # CPU fallback (e.g. Apple Silicon): gloo backend, tensors on CPU.
+        dist.init_process_group("gloo", rank=rank, world_size=world_size)
+        device = torch.device("cpu")
 
     # Start logging
     logger = Logger(
@@ -701,8 +751,8 @@ def fsdp_main(local_rank: int, world_size: int, args: Dict):
     )
 
     # Timing stuff
-    init_start_event = torch.cuda.Event(enable_timing=True)
-    init_end_event = torch.cuda.Event(enable_timing=True)
+    init_start_event = _Timer()
+    init_end_event = _Timer()
 
     # model precision, qlora compute precison, and FSDP mixed precision policy.
     # The Linear4Bit quant_storage dtype should always match the FSDP param_dtype. The compute_dtype should match the AMP compute dtype.
@@ -763,7 +813,7 @@ def fsdp_main(local_rank: int, world_size: int, args: Dict):
             )
             dtype = torch_dtype if args["precision"] == "bf16" else None
             model.to(
-                dtype=dtype, device="cpu" if args["low_memory"] else rank
+                dtype=dtype, device="cpu" if args["low_memory"] else device
             )
         else:
             cfg = AutoConfig.from_pretrained(args["model_name"])
@@ -854,7 +904,7 @@ def fsdp_main(local_rank: int, world_size: int, args: Dict):
             )
             devprops = torch.cuda.get_device_properties(
                 torch.cuda.current_device()
-            )
+            )  # only reached with CUDA (quantized train types are CUDA-only)
             left = int(os.cpu_count() / torch.cuda.device_count())
             right = int(
                 8
@@ -885,7 +935,7 @@ def fsdp_main(local_rank: int, world_size: int, args: Dict):
     print(
         "Model created",
         rank,
-        f"{torch.cuda.memory_allocated(local_rank)/1e9:.3f} GB",
+        f"{_mem_allocated(local_rank)/1e9:.3f} GB",
     )
 
     # PEFT setup (LoRA and QLoRA)
@@ -940,14 +990,12 @@ def fsdp_main(local_rank: int, world_size: int, args: Dict):
         print(
             "LoRA layers added",
             rank,
-            f"{torch.cuda.memory_allocated(local_rank)/1e9:.3f} GB",
+            f"{_mem_allocated(local_rank)/1e9:.3f} GB",
         )
 
     logger.log(
         {
-            "memory_after_model_creation": torch.cuda.memory_allocated(
-                local_rank
-            )
+            "memory_after_model_creation": _mem_allocated(local_rank)
         },
         rank,
     )
@@ -983,10 +1031,12 @@ def fsdp_main(local_rank: int, world_size: int, args: Dict):
             else None
         ),
         limit_all_gathers=True,  # See https://github.com/pytorch/pytorch/issues/91165
-        device_id=torch.cuda.current_device(),
+        device_id=(
+            torch.cuda.current_device() if HAS_CUDA else torch.device("cpu")
+        ),
         sync_module_states=args["low_memory"],
         param_init_fn=lambda module: (
-            module.to_empty(device=torch.device("cuda"), recurse=False)
+            module.to_empty(device=device, recurse=False)
             if (rank != 0 and args["low_memory"])
             else None
         ),  # TODO note about meta device and why we need this
@@ -995,13 +1045,11 @@ def fsdp_main(local_rank: int, world_size: int, args: Dict):
     print(
         "Wrapped model",
         rank,
-        f"{torch.cuda.memory_allocated(local_rank)/1e9:.3f} GB",
+        f"{_mem_allocated(local_rank)/1e9:.3f} GB",
     )
     logger.log(
         {
-            "memory_after_model_wrap": torch.cuda.memory_allocated(
-                local_rank
-            )
+            "memory_after_model_wrap": _mem_allocated(local_rank)
         },
         rank,
     )
@@ -1071,9 +1119,14 @@ def fsdp_main(local_rank: int, world_size: int, args: Dict):
         "bf16_autocast",
         "bf16_buffers_autocast",
     ]:
-        autocast = torch.cuda.amp.autocast(
-            enabled=True, dtype=compute_dtype
-        )
+        if HAS_CUDA:
+            autocast = torch.cuda.amp.autocast(
+                enabled=True, dtype=compute_dtype
+            )
+        else:
+            autocast = torch.autocast(
+                "cpu", dtype=compute_dtype, enabled=True
+            )
     else:
         autocast = nullcontext()
     scaler = (
@@ -1089,11 +1142,12 @@ def fsdp_main(local_rank: int, world_size: int, args: Dict):
     init_start_event.record()
     log_loss, log_lr = 0.0, -1
     # Reset peak memory to track that
-    torch.cuda.reset_peak_memory_stats(local_rank)
+    if HAS_CUDA:
+        torch.cuda.reset_peak_memory_stats(local_rank)
     for epoch in range(args["num_epochs"]):
         update_progress_bar(progress_bar, epoch, log_loss, log_lr, rank)
         model.train()
-        ddp_loss = torch.zeros(2).to(local_rank)
+        ddp_loss = torch.zeros(2).to(device)
 
         for batch_idx, batch in enumerate(dataloader):
             accumulate_grads = (
@@ -1114,6 +1168,7 @@ def fsdp_main(local_rank: int, world_size: int, args: Dict):
                 and rank == 0
                 and epoch == 0
                 and args["profile_memory"]
+                and HAS_CUDA
             ):
                 torch.cuda.memory._record_memory_history()
 
@@ -1121,9 +1176,7 @@ def fsdp_main(local_rank: int, world_size: int, args: Dict):
             if batch_idx == 4 and epoch == 0:
                 logger.log(
                     {
-                        "memory_before_forward": torch.cuda.memory_allocated(
-                            local_rank
-                        )
+                        "memory_before_forward": _mem_allocated(local_rank)
                         / 1e9
                     },
                     rank,
@@ -1133,8 +1186,8 @@ def fsdp_main(local_rank: int, world_size: int, args: Dict):
             with sync_context:
                 with autocast:
                     output = model(
-                        batch["input_ids"].to(local_rank),
-                        labels=batch["labels"].to(local_rank),
+                        batch["input_ids"].to(device),
+                        labels=batch["labels"].to(device),
                         attention_mask=None,
                     )
                     loss = output.loss
@@ -1146,9 +1199,7 @@ def fsdp_main(local_rank: int, world_size: int, args: Dict):
                 if batch_idx == 4 and epoch == 0:
                     logger.log(
                         {
-                            "memory_after_forward": torch.cuda.memory_allocated(
-                                local_rank
-                            )
+                            "memory_after_forward": _mem_allocated(local_rank)
                             / 1e9
                         },
                         rank,
@@ -1186,9 +1237,7 @@ def fsdp_main(local_rank: int, world_size: int, args: Dict):
             if batch_idx == 4 and epoch == 0:
                 logger.log(
                     {
-                        "memory_after_backward": torch.cuda.memory_allocated(
-                            local_rank
-                        )
+                        "memory_after_backward": _mem_allocated(local_rank)
                         / 1e9
                     },
                     rank,
@@ -1204,6 +1253,7 @@ def fsdp_main(local_rank: int, world_size: int, args: Dict):
                 and rank == 0
                 and epoch == 0
                 and args["profile_memory"]
+                and HAS_CUDA
             ):
                 torch.cuda.memory._dump_snapshot("memory_snapshot.pickle")
                 torch.cuda.memory._record_memory_history(
@@ -1224,15 +1274,16 @@ def fsdp_main(local_rank: int, world_size: int, args: Dict):
                     )
                     if args["log_to"] == "wandb":
                         logger.log({"loss": log_loss, "lr": log_lr}, rank)
-                ddp_loss = torch.zeros(2).to(local_rank)
+                ddp_loss = torch.zeros(2).to(device)
 
         # Print + log peak memory usage for the whole first step of training
         if epoch == 0 and rank == 0:
-            peak_memory = torch.cuda.max_memory_allocated(local_rank)
+            peak_memory = (
+                torch.cuda.max_memory_allocated(local_rank) if HAS_CUDA else 0
+            )
             if args["verbose"]:
                 print_func(
-                    f"Peak memory usage (training): {peak_memory/1e9:.2f}GB",
-                    rank,
+                    f"Peak memory usage (training): {peak_memory/1e9:.2f}GB"
                 )
             if args["log_to"] == "wandb":
                 logger.log({"memory_peak": peak_memory}, rank)
@@ -1240,7 +1291,7 @@ def fsdp_main(local_rank: int, world_size: int, args: Dict):
     # Synchronize at the end and record time
     init_end_event.record()
     dist.barrier()
-    torch.cuda.synchronize()
+    _cuda_sync()
 
     if rank == 0:
         print("Finished training", rank)
@@ -1248,9 +1299,9 @@ def fsdp_main(local_rank: int, world_size: int, args: Dict):
     # Print time and model
     time_taken = init_start_event.elapsed_time(init_end_event) / 1000
     dist.barrier()
-    torch.cuda.synchronize()
+    _cuda_sync()
     if rank == 0:
-        print(f"CUDA event elapsed time: {time_taken} sec")
+        print(f"{'CUDA event' if HAS_CUDA else 'Wall-clock'} elapsed time: {time_taken} sec")
         logger.log({"time_taken": time_taken}, rank)
 
     # End logging
@@ -1266,8 +1317,10 @@ def fsdp_main(local_rank: int, world_size: int, args: Dict):
         if rank == 0:
             os.makedirs(args["output_dir"], exist_ok=True)
         dist.barrier()
+        # On CPU the params are already on CPU; offload_to_cpu=True breaks
+        # FSDP's unshard (empty storage) when world_size > 1 there.
         save_policy = FullStateDictConfig(
-            offload_to_cpu=True, rank0_only=True
+            offload_to_cpu=HAS_CUDA, rank0_only=True
         )
         if args["train_type"] in [
             "custom_lora",
@@ -1297,7 +1350,7 @@ def fsdp_main(local_rank: int, world_size: int, args: Dict):
                         },
                     }
                 dist.barrier()
-                torch.cuda.synchronize()
+                _cuda_sync()
             if rank == 0:
                 print_func("Saving trained LoRA weights.")
                 save_file(
@@ -1306,7 +1359,7 @@ def fsdp_main(local_rank: int, world_size: int, args: Dict):
                         args["output_dir"], "model_state_dict.safetensors"
                     ),
                 )
-                print_func("Done", rank)
+                print_func("Done")
         else:
             with FSDP.state_dict_type(
                 model, StateDictType.FULL_STATE_DICT, save_policy
@@ -1321,7 +1374,7 @@ def fsdp_main(local_rank: int, world_size: int, args: Dict):
                             "model_state_dict.safetensors",
                         ),
                     )
-                    print_func("Done", rank)
+                    print_func("Done")
 
     dist.barrier()  # Stop other processes ending while model saving - probably not needed?
 
@@ -1370,11 +1423,14 @@ class FSDP_QLORA:
         name: str = None,  # For wandb logging
         group: str = None,  # For wandb logging
         entity: str = None,  # For wandb logging
+        max_train_samples: int = -1,  # Only use the first N samples of the dataset (-1 = all). Handy for smoke tests.
     ):
         self.world_size = (
-            world_size if world_size != -1 else torch.cuda.device_count()
+            world_size
+            if world_size != -1
+            else (torch.cuda.device_count() if HAS_CUDA else 1)
         )
-        print(f"World size: {world_size}")
+        print(f"World size: {self.world_size}")
 
         if lora_target_modules == "all":
             lora_target_modules = [
@@ -1388,11 +1444,37 @@ class FSDP_QLORA:
         elif lora_target_modules.lower() == "default":
             lora_target_modules = None
 
-        if (
-            precision in ["bf16", "bf16_autocast", "bf16_buffers_autocast"]
-            and not torch.cuda.is_available()
-        ):
-            raise ValueError("dummy you don't have cuda configured")
+        if not HAS_CUDA:
+            if train_type in QUANTIZED_TRAIN_TYPES:
+                raise ValueError(
+                    f"train_type='{train_type}' uses 4-bit quantization "
+                    "(bitsandbytes/HQQ), which requires CUDA. No CUDA device "
+                    "was found, so use an unquantized train_type on CPU: "
+                    "'lora', 'custom_lora' or 'full'."
+                )
+            if precision == "fp16_autocast":
+                raise ValueError(
+                    "precision='fp16_autocast' needs CUDA (ShardedGradScaler / "
+                    "fp16 autocast). On CPU use 'fp32', 'bf16', 'bf16_autocast' "
+                    "or 'bf16_buffers_autocast'."
+                )
+            if use_cpu_offload:
+                print(
+                    "No CUDA: parameters already live on CPU, "
+                    "disabling use_cpu_offload."
+                )
+                use_cpu_offload = False
+            if use_activation_cpu_offload:
+                print("No CUDA: disabling use_activation_cpu_offload.")
+                use_activation_cpu_offload = False
+            if low_memory:
+                # low_memory relies on FSDP sync_module_states, which needs a
+                # non-CPU device. On CPU every rank just loads its own copy.
+                print("No CUDA: disabling low_memory (needs GPU for sync_module_states).")
+                low_memory = False
+            if profile_memory:
+                print("No CUDA: disabling profile_memory.")
+                profile_memory = False
 
         if use_cpu_offload and gradient_accumulation_steps > 1:
             no_sync = True
@@ -1443,12 +1525,13 @@ class FSDP_QLORA:
             "name": name,
             "group": group,
             "entity": entity,
+            "max_train_samples": max_train_samples,
         }
 
     def train_qlora(self):
         mp.spawn(
             fsdp_main,
             args=(self.world_size, self.args),
-            nprocs=torch.cuda.device_count(),
+            nprocs=self.world_size,
             join=True,
         )
