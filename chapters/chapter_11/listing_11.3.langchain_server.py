@@ -1,26 +1,28 @@
 import os
+import json
 from langchain.chains import LLMChain
 from langchain_community.chat_models import ChatOpenAI
 from langchain.prompts import PromptTemplate
 from sentence_transformers import SentenceTransformer
 import numpy as np
-from datasets import load_dataset
+import pandas as pd
+from datasets import Dataset
 import tiktoken
 
-os.environ["OPENAI_API_KEY"] = "Your API Key"
-os.environ["OPENAI_API_BASE"] = (
-    "http://0.0.0.0:1234/v1"  # Replace with your server's address and port
-)
-os.environ["OPENAI_API_HOST"] = (
-    "http://0.0.0.0:1234"  # Replace with your host IP
-)
+# 로컬 서버(Ollama 등)를 쓰려면 .env 의 OPENAI_API_BASE / OPENAI_API_KEY 사용
+os.environ.setdefault("OPENAI_API_KEY", "Your API Key")
+os.environ.setdefault(
+    "OPENAI_API_BASE", "http://0.0.0.0:1234/v1"
+)  # Replace with your server's address and port
 
 llm = ChatOpenAI(
-    model_name="gpt-3.5-turbo",  # Can be anything
+    model_name=os.getenv("OLLAMA_MODEL", "gpt-3.5-turbo"),  # Can be anything
     temperature=0.25,
     openai_api_base=os.environ["OPENAI_API_BASE"],  # Again
     openai_api_key=os.environ["OPENAI_API_KEY"],
-    max_tokens=500,
+    max_tokens=4000,
+    # 추론(reasoning) 모델이 content 를 비우지 않도록 (Ollama) 생각 노력 최소화
+    model_kwargs={"extra_body": {"reasoning_effort": "none"}},
     n=1,
 )
 
@@ -49,16 +51,37 @@ prompt_template = """Below is an instruction that describes a task, paired with 
         """
 
 # Here's a rudimentary vectorDB, change it to anything we've covered
-vectorDB = load_dataset(
-    "csv", data_files="your dataset with embeddings.csv", split="train"
+DATA_CSV = os.getenv(
+    "EMBEDDINGS_CSV",
+    os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "..",
+        "..",
+        "data",
+        "Slack_Dataset_embedded.csv",
+    ),
 )
+# CSV 에서는 embedding 이 문자열로 저장되므로 float 리스트로 변환
+df = pd.read_csv(DATA_CSV)[["text", "embedding"]]
+
+
+def _parse(v):
+    try:
+        e = json.loads(v)
+        return e if len(e) == 384 else None
+    except Exception:
+        return None  # 깨진 행은 건너뜀
+
+
+df["embedding"] = df["embedding"].apply(_parse)
+df = df.dropna(subset=["embedding"]).reset_index(drop=True)
+vectorDB = Dataset.from_pandas(df)
 # If you haven't created a faiss or elasticsearch or usearch index, do it
 try:
-    vectorDB.load_faiss_index("embeddings", "my_index.faiss")
+    vectorDB.load_faiss_index("embedding", "my_index.faiss")
 except Exception:
-    print(
-        "No faiss index, run vectorDB.add_faiss_index(column='embeddings') and vectorDB.save_faiss_index('embeddings', 'my_index.faiss')"
-    )
+    print("No faiss index, building one with add_faiss_index")
+    vectorDB.add_faiss_index(column="embedding")
 
 # To keep track of chat history, do this however you need!
 message_history = []
@@ -67,7 +90,7 @@ message_history = []
 query = "How can I train an LLM from scratch?"
 embedded = embedder.encode(query)
 q = np.array(embedded, dtype=np.float32)
-_, retrieved_example = vectorDB.get_nearest_examples("embeddings", q, k=1)
+_, retrieved_example = vectorDB.get_nearest_examples("embedding", q, k=1)
 
 # Format the prompt
 formatted_prompt = PromptTemplate(
@@ -96,7 +119,7 @@ res = chain.run(
     {
         "question": query,
         "conversation_history": message_history,
-        "code_snippet": "",
+        "code_snippet": retrieved_example["text"][0],
     }
 )
 message_history.append(f"User: {query}\nLlama: {res}")

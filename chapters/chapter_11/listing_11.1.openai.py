@@ -1,12 +1,14 @@
+import os
 import openai
 
 client = openai.OpenAI(
-    base_url="http://0.0.0.0:8080/v1",  # replace with your pi's ip address
-    api_key="1234",  # replace with your server's api key
+    base_url=os.getenv("OPENAI_BASE_URL", "http://0.0.0.0:8080/v1"),  # replace with your pi's ip address
+    api_key=os.getenv("OPENAI_API_KEY", "1234"),  # replace with your server's api key
 )
 
 completion = client.chat.completions.create(
-    model="gpt-3.5-turbo",
+    model=os.getenv("OLLAMA_MODEL", "gpt-3.5-turbo"),
+    max_tokens=1024,
     messages=[
         {
             "role": "system",

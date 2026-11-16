@@ -1,3 +1,4 @@
+import os
 import openai
 
 import base64
@@ -22,15 +23,15 @@ def encode_image(image_path, max_image=512):
 
 
 client = openai.OpenAI(
-    base_url="http://0.0.0.0:1234/v1",  # replace with your server's ip address and port
-    api_key="1234",  # replace with your server's api key
+    base_url=os.getenv("OPENAI_BASE_URL", "http://0.0.0.0:1234/v1"),  # replace with your server's ip address and port
+    api_key=os.getenv("OPENAI_API_KEY", "1234"),  # replace with your server's api key
 )
-image_file = "myImage.jpg"
+image_file = os.getenv("IMAGE_FILE", "myImage.jpg")
 max_size = 512  # set to maximum dimension to allow (512=1 tile, 2048=max)
 encoded_string = encode_image(image_file, max_size)
 
 completion = client.chat.completions.with_raw_response.create(
-    model="gpt-4-vision-preview",
+    model=os.getenv("OLLAMA_VISION_MODEL", os.getenv("OLLAMA_MODEL", "gpt-4-vision-preview")),
     messages=[
         {
             "role": "system",
@@ -52,7 +53,7 @@ completion = client.chat.completions.with_raw_response.create(
             ],
         },
     ],
-    max_tokens=500,
+    max_tokens=1000,
 )
 
 chat = completion.parse()
