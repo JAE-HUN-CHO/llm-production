@@ -1,8 +1,9 @@
+import os
 import guidance
 from guidance import models, select
 
 # Load a HuggingFace Transformers model
-falcon = models.Transformers("tiiuae/falcon-rw-1b")
+falcon = models.Transformers(os.getenv("GUIDANCE_MODEL", "tiiuae/falcon-rw-1b"))
 
 
 # Create functions to easily implement grammars

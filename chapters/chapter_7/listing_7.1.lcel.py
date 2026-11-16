@@ -1,13 +1,20 @@
 import os
+from dotenv import load_dotenv
 from langchain.chat_models import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate
 from langchain.schema.output_parser import StrOutputParser
 
+load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 
 prompt = ChatPromptTemplate.from_template("Tell me a story about {topic}")
-model = ChatOpenAI(model="gpt-3.5-turbo", openai_api_key=OPENAI_API_KEY)
+# OPENAI_API_BASE 환경변수(로컬 Ollama 등)가 있으면 자동으로 사용됨
+model = ChatOpenAI(
+    model=os.getenv("OLLAMA_MODEL", "gpt-3.5-turbo"),
+    openai_api_key=OPENAI_API_KEY,
+    max_tokens=2000,
+)
 output_parser = StrOutputParser()
 
 chain = prompt | model | output_parser
