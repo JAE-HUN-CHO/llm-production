@@ -1,4 +1,5 @@
 import argparse
+import os
 import asyncio
 from typing import AsyncGenerator
 
@@ -17,7 +18,15 @@ from transformers import (
 )
 from threading import Thread
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# device 자동 선택: cuda > mps > cpu
+if os.getenv("DEVICE"):  # 강제 지정: DEVICE=cpu|mps|cuda
+    device = torch.device(os.environ["DEVICE"])
+elif torch.cuda.is_available():
+    device = torch.device("cuda")
+elif torch.backends.mps.is_available():
+    device = torch.device("mps")
+else:
+    device = torch.device("cpu")
 
 app = FastAPI()
 
@@ -34,16 +43,18 @@ app.add_middleware(
 )
 
 # Load tokenizer, model, and streamer into memory
-tokenizer = AutoTokenizer.from_pretrained(
-    "togethercomputer/RedPajama-INCITE-Chat-3B-v1"
+# 기본값은 원본 모델. 작은 모델로 테스트하려면 BACKEND_MODEL=gpt2 처럼 지정
+MODEL_NAME = os.getenv(
+    "BACKEND_MODEL", "togethercomputer/RedPajama-INCITE-Chat-3B-v1"
 )
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 model = AutoModelForCausalLM.from_pretrained(
-    "togethercomputer/RedPajama-INCITE-Chat-3B-v1",
-    torch_dtype=torch.float16,
+    MODEL_NAME,
+    torch_dtype=torch.float16 if device.type != "cpu" else torch.float32,
 )
 model = model.to(device)
 streamer = TextIteratorStreamer(
-    tokenizer, timeout=10, skip_prompt=True, skip_special_tokens=True
+    tokenizer, timeout=float(os.getenv("STREAMER_TIMEOUT", "60")), skip_prompt=True, skip_special_tokens=True
 )
 
 
@@ -83,7 +94,8 @@ async def generate(request: Request) -> Response:
     generation_kwargs = dict(
         inputs,
         streamer=streamer,
-        max_new_tokens=1024,
+        max_new_tokens=int(os.getenv("MAX_NEW_TOKENS", "1024")),
+        pad_token_id=tokenizer.eos_token_id,
         stopping_criteria=StoppingCriteriaList([StopOnTokens()]),
     )
 

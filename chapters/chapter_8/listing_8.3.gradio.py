@@ -1,8 +1,9 @@
+import os
 import gradio as gr
 import requests
 import json
 
-url = "http://localhost:8000/generate"  # point to your model's API
+url = os.getenv("BACKEND_URL", "http://localhost:8000/generate")  # point to your model's API
 
 
 def generate(message, history):

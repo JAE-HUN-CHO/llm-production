@@ -1,12 +1,21 @@
+import os
 import time
 from llama_cpp import Llama
 
-llm = Llama(model_path="./models/wizardcoder-python-7b-v1.0.Q2_K.gguf")
+# 모델 경로는 LLAMA_MODEL_PATH 로 변경 가능 (예: 작은 TinyLlama GGUF)
+MODEL_PATH = os.getenv(
+    "LLAMA_MODEL_PATH", "./models/wizardcoder-python-7b-v1.0.Q2_K.gguf"
+)
+llm = Llama(
+    model_path=MODEL_PATH,
+    n_ctx=int(os.getenv("N_CTX", "2048")),
+    n_threads=int(os.getenv("N_THREADS", "0")) or None,
+)
 
 start_time = time.time()
 output = llm(
     "Q: Write python code to reverse a linked list. A: ",
-    max_tokens=200,
+    max_tokens=int(os.getenv("MAX_TOKENS", "200")),
     stop=["Q:"],
     echo=True,
 )

@@ -1,11 +1,12 @@
 # Start service with:
 # streamlit run chapters/chapter_8/listing_8.2.streamlit.py
 
+import os
 import streamlit as st
 import requests
 import json
 
-url = "http://localhost:8000/generate"  # point to your model's API
+url = os.getenv("BACKEND_URL", "http://localhost:8000/generate")  # point to your model's API
 
 st.title("Chatbot with History")
 

@@ -1,14 +1,18 @@
-from langchain.llms import LlamaCpp
+import os
+from langchain_community.llms import LlamaCpp
 from langchain.agents import AgentType
 from langchain_experimental.agents import create_csv_agent
 
 
 # Load in the model
 llm = LlamaCpp(
-    model_path="./models/mistral-7b-instruct-v0.1.Q4_0.gguf",
-    n_gpu_layers=0,  # 1 if NEON, any number if CUBLAS else 0
+    model_path=os.getenv(
+        "LLAMA_MODEL_PATH", "./models/mistral-7b-instruct-v0.1.Q4_0.gguf"
+    ),
+    n_gpu_layers=int(os.getenv("N_GPU_LAYERS", "0")),  # 1 if NEON, any number if CUBLAS else 0
     n_batch=512,
-    n_ctx=32768,  # Context window for the model
+    n_threads=int(os.getenv("N_THREADS", "0")) or None,
+    n_ctx=int(os.getenv("N_CTX", "32768")),  # Context window for the model
     verbose=False,
 )
 
@@ -82,10 +86,20 @@ llm = LlamaCpp(
 # An agent that will read a CSV and analyze it
 agent = create_csv_agent(
     llm,
-    "./data/Slack_Dataset.csv",
+    os.getenv(
+        "SLACK_CSV",
+        os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "..",
+            "..",
+            "data",
+            "Slack_Dataset.csv",
+        ),
+    ),
     verbose=True,
     agent_type=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
-    handle_parsing_errors=True,
+    agent_executor_kwargs={"handle_parsing_errors": True},
+    max_iterations=int(os.getenv("MAX_ITERATIONS", "15")),
 )
 
 agent.run(

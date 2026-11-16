@@ -1,4 +1,5 @@
-from langchain.llms import LlamaCpp
+import os
+from langchain_community.llms import LlamaCpp
 from langchain.chains.conversation.memory import (
     ConversationBufferWindowMemory,
 )
@@ -9,10 +10,13 @@ from langchain.tools import DuckDuckGoSearchRun, YouTubeSearchTool
 
 # Load in the model
 llm = LlamaCpp(
-    model_path="./models/mistral-7b-instruct-v0.1.Q4_0.gguf",
-    n_gpu_layers=0,  # 1 if NEON, any number if CUBLAS else 0
+    model_path=os.getenv(
+        "LLAMA_MODEL_PATH", "./models/mistral-7b-instruct-v0.1.Q4_0.gguf"
+    ),
+    n_gpu_layers=int(os.getenv("N_GPU_LAYERS", "0")),  # 1 if NEON, any number if CUBLAS else 0
     n_batch=512,
-    n_ctx=32768,  # Context window for the model
+    n_threads=int(os.getenv("N_THREADS", "0")) or None,
+    n_ctx=int(os.getenv("N_CTX", "32768")),  # Context window for the model
     verbose=False,
 )
 
@@ -45,6 +49,7 @@ agent = initialize_agent(
     verbose=True,
     memory=memory,
     handle_parsing_errors=True,
+    max_iterations=int(os.getenv("MAX_ITERATIONS", "15")),
 )
 
 # Special tokens used by llama 2 chat
@@ -135,10 +140,14 @@ human_msg = instruction + "\nUser: {input}"
 agent.agent.llm_chain.prompt.messages[2].prompt.template = human_msg
 
 # Run with User Input
-agent.run(
-    "Tell me how old Justin Beiber was when the Patriots last won the "
-    "Superbowl."
-)
+try:
+    agent.run(
+        "Tell me how old Justin Beiber was when the Patriots last won the "
+        "Superbowl."
+    )
+except ValueError as e:
+    # 작은 로컬 모델은 Calculator 도구에 잘못된 수식을 넘길 수 있음
+    print(f"Agent stopped with a tool error: {e}")
 # Remember that for this we asked the model to respond in json
 
 # > Entering new AgentExecutor chain…
