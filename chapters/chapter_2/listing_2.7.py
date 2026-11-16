@@ -67,7 +67,7 @@ class RNN(torch.nn.Module):
     def forward(self, x, text_lengths):
         embedded = self.embedding(x)
         packed_embedded = torch.nn.utils.rnn.pack_padded_sequence(
-            embedded, text_lengths
+            embedded, text_lengths.cpu()
         )
         packed_output, hidden = self.rnn(packed_embedded)
         output, output_lengths = torch.nn.utils.rnn.pad_packed_sequence(
@@ -88,6 +88,7 @@ rnn_model = RNN(
 rnn_optimizer = torch.optim.SGD(rnn_model.parameters(), lr=1e-3)
 rnn_criterion = torch.nn.BCEWithLogitsLoss()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+rnn_model = rnn_model.to(device)
 
 
 class LSTM(torch.nn.Module):
@@ -119,7 +120,7 @@ class LSTM(torch.nn.Module):
     def forward(self, x, text_lengths):
         embedded = self.embedding(x)
         packed_embedded = torch.nn.utils.rnn.pack_padded_sequence(
-            embedded, text_lengths
+            embedded, text_lengths.cpu()
         )
         packed_output, (hidden, cell) = self.rnn(packed_embedded)
         hidden = self.dropout(
@@ -147,6 +148,7 @@ lstm_model = LSTM(
     embedding_weights,
 )
 
+lstm_model = lstm_model.to(device)
 lstm_optimizer = torch.optim.Adam(lstm_model.parameters())
 lstm_criterion = torch.nn.BCEWithLogitsLoss()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

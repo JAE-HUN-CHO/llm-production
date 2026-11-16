@@ -1,6 +1,8 @@
+import os
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-MODEL_NAME = "bigscience/bloom"  # change to bloom-3b to test
+# full "bigscience/bloom" is 176B params; override via env var (e.g. bigscience/bloom-3b)
+MODEL_NAME = os.environ.get("BLOOM_MODEL", "bigscience/bloom")
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
