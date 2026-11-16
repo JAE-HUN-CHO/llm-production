@@ -17,8 +17,23 @@ client = OpenAI(
 chat_completion = client.chat.completions.create(
     model=os.getenv("OLLAMA_MODEL", "gpt-3.5-turbo"),  # 로컬 Ollama 모델 사용
     max_tokens=512,
-    messages=[{"role": "user", "content": "Hello world"}],
+    messages=[{"role": "user", "content": "안녕하세요. 한국의 수도는 어디인가요? 한국은 어떤 나라인가요?"}],
 )
-print(chat_completion)
+
+# 전체 객체(print(chat_completion))는 읽기 어려우므로 필요한 항목만 보기 좋게 출력
+choice = chat_completion.choices[0]
+usage = chat_completion.usage
+# reasoning 모델(DeepSeek-R1 등, Ollama)은 생각 과정을 reasoning 필드로 돌려줌
+reasoning = getattr(choice.message, "reasoning", None)
+
+print(f"모델: {chat_completion.model}")
+print(f"종료 사유: {choice.finish_reason}")
+if reasoning:
+    print(f"\n[생각 과정]\n{reasoning.strip()}")
+print(f"\n[답변]\n{choice.message.content.strip()}")
+print(
+    f"\n토큰 사용량: 입력 {usage.prompt_tokens} + 출력 {usage.completion_tokens}"
+    f" = 합계 {usage.total_tokens}"
+)
 
 # ChatCompletion(id='chatcmpl-sOXJ9vt92vStdAqwOxSASONPSdAUg6yN', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content=' Hello! How can I help you today? ', role='assistant', function_call=None, tool_calls=None))], created=1714527205, model='gpt-3.5-turbo', object='chat.completion', system_fingerprint=None, usage=CompletionUsage(completion_tokens=11, prompt_tokens=10, total_tokens=21))

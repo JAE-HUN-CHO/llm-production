@@ -16,7 +16,7 @@ except LookupError:
 
 # Create a corpus from any number of plain .txt files
 my_corpus = PlaintextCorpusReader("./", ".*\.txt")
-file_ids = "./data/hamlet.txt"
+file_ids = "../../data/hamlet.txt"
 
 for sent in my_corpus.sents(fileids=file_ids):
     print(sent)
